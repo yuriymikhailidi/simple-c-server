@@ -32,6 +32,7 @@
 #define ICO "HTTP/1.1 200 Document Follows\r\nContent-Type:image/x-icon\r\nContent-Length: %ld \r\n\r\n"
 #define CSS "HTTP/1.1 200 Document Follows\r\nContent-Type:text/css\r\nContent-Length: %ld\r\n\r\n"
 #define JS "HTTP/1.1 200 Document Follows\r\nContent-Type:application/javascript\r\nContent-Length: %ld\r\n\r\n"
+#define ERR "%s 500 Internal Server Error\r\n\r\n"
 
 
 /* request handle */
@@ -50,14 +51,14 @@ void handle_request(Request *, int);
 void handle_response(int, long, int, Request *);
 
 /*error wrapper */
-void handle_error(char *);
+void handle_error(int);
 
 /* parses input into array,
  * encapsulates the request info into struct */
-Request *parse_request(char *);
+Request *parse_request(char *, int);
 
 /* header mapper, takes file type string, returns header */
-char* header_mime_type(char*);
+char* header_mime_type(char*, int);
 /*helper to find the fyle type*/
 int compare_file_type(char*, char*);
 

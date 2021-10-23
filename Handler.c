@@ -13,9 +13,13 @@
 #include <sys/stat.h>
 
 
-
-void handle_error(char* msg){
-    perror(msg);
+/* handle the error */
+void handle_error(int connfd){
+    char error_buf[MAXLINE];
+    printf("server returning a http message with the following content."
+           "\n\"HTTP/1.1 500 Internal Server Error\"\n");
+    strcpy(error_buf, "HTTP/1.1 500 Internal Server Error");
+    write(connfd, error_buf, strlen(error_buf));
 }
 int compare_file_type(char* name, char* type){
     int file_name_len, type_str_len;
@@ -32,20 +36,17 @@ int compare_file_type(char* name, char* type){
     return 1;
 }
 
-char* header_mime_type(char* file_name){
-    char bufffer[MAXLINE];
+char* header_mime_type(char* file_name, int connfd){
+    char* bufffer = malloc((MAXLINE) * sizeof (char ));
+
     if(compare_file_type(file_name, "html"))
         strcpy(bufffer, HTML);
-
     else if(compare_file_type(file_name, "txt"))
         strcpy(bufffer, PLAIN);
-
     else if(compare_file_type(file_name, "png"))
         strcpy(bufffer, PNG);
-
     else if(compare_file_type(file_name, "gif"))
         strcpy(bufffer, GIF);
-
     else if(compare_file_type(file_name, "jpg"))
         strcpy(bufffer, JPG);
     else if(compare_file_type(file_name, "ico"))
@@ -55,44 +56,48 @@ char* header_mime_type(char* file_name){
     else if(compare_file_type(file_name, "js"))
         strcpy(bufffer, JS);
     else
-        handle_error( "ERROR wrong file format");
+        handle_error(connfd);
 
     return bufffer;
 }
 /* file size method is base of https://stackoverflow.com/questions/6537436/how-do-you-get-file-size-by-fd */
-void handle_request(Request* request_info, int connfd){
+void handle_request(Request* req, int connfd){
     /*local*/
     long file_size;
     int  r_file_descriptor;
     struct stat file_stats;
 
     /* file path */
-    const char* file_path = request_info->r_uri;
+    const char* file_path = req->r_uri;
 
     /*get file stats*/
     if(stat(file_path, &file_stats) < 0)
-        handle_error("ERROR: File stats failed");
+        handle_error( connfd);
 
     /*record file size */
     file_size = file_stats.st_size;
 
     /* open file */
     if((r_file_descriptor = open(file_path, O_RDONLY)) < 0)
-        handle_error("ERROR: File was not open");
+        handle_error( connfd);
 
-    handle_response(r_file_descriptor, file_size, connfd, request_info);
+    handle_response(r_file_descriptor, file_size, connfd, req);
 }
 
-void handle_response(int req_file_descriptor, long file_size, int connfd, Request* request_info){
+void handle_response(int req_file_descriptor, long file_size, int connfd, Request* request){
         /* allocate packet memory */
-        unsigned char packet[MAXLINE + file_size];
-        unsigned char header [MAXLINE];
-        unsigned char payload[file_size];
-
+        int max_packet = MAXLINE + file_size;
+        unsigned char packet [max_packet];
+        unsigned char* header = malloc(MAXLINE * sizeof (char ));
+        unsigned char payload [file_size];
+        char* header_str = malloc((MAXLINE) * sizeof (char ));
         /*get file payload */
         long read_bytes = read(req_file_descriptor, payload, file_size);
-        /* get header string */
-        sprintf(header, header_mime_type(request_info->r_uri), file_size);
+        printf(" read %ld\n", read_bytes);
+        printf("server is handeling response\n");
+    /* get header string */
+        strcpy(header_str, header_mime_type(request->r_uri, connfd));
+        sprintf(header, header_str, file_size);
         /* copy header in */
         strcpy(packet, header);
 
@@ -103,9 +108,12 @@ void handle_response(int req_file_descriptor, long file_size, int connfd, Reques
 
         /* send response */
         long write_bytes = write(connfd, packet, sizeof (packet) );
-        printf("Read %ld, Write %ld\n", read_bytes, write_bytes);
 
 
+        free(header_str);free(header);
+        bzero(packet, MAXLINE + file_size);
+        bzero(header, MAXLINE); bzero(payload, file_size);
+        bzero(request, sizeof (Request));
         close(req_file_descriptor);
 }
 /*
@@ -113,50 +121,53 @@ void handle_response(int req_file_descriptor, long file_size, int connfd, Reques
  *      parser function breaks the buffer to array of strings, the strings are put in the struct, the request info
  *      command, url (root file path), http version.
  */
-Request* parse_request(char* request_buffer){
-    /* basic vars */
-    Request* req;
-    char* req_type = "GET";
-    char* delim =  " ";
-    char* uri = strtok(request_buffer, delim);
-    char** request_arr = calloc(sizeof(request_buffer), sizeof (char *));
-
-    /*parsing loop to get info */
-    for (int i = 0; uri != NULL; i++) {
-        uri[strcspn(uri, "\n")] = '\0'; // drop trailing new lines
-        request_arr[i] = uri;
-        uri = strtok(NULL, delim); //parse char
+int check_path(char* file_path){
+    printf("server checking path: %s\n", file_path);
+    /* ../www/ */
+    char* www = "/www/";
+    char* ret = strstr(file_path, www);
+    if(ret){
+        return 1;
+    } else {
+        return -1;
     }
+}
+Request* parse_request(char* request_buffer, int connfd){
 
-//    /*check the request type */
-//    if(strcmp(request_arr[0], "GET") != 0 && strcmp(request_arr[0], "HEAD") != 0)
-//        handle_error("ERROR: Request is not recognize");
+    char* request_type = strtok(request_buffer," ");
+    char* file_name = strtok(NULL, " ");
+    char* http_version = strtok(NULL, "\r");
+    /* basic vars */
+    Request *req = malloc(sizeof (Request));
+    char* req_GET = "GET";
 
     // Parse GET command
-    if (strcmp(request_arr[0], req_type) == 0) {
-        if (request_arr[1] == NULL) {
-            handle_error("ERROR: Uri is empty");
+    if (strcmp(request_type, req_GET) == 0) {
+        if (request_type == NULL) {
+            handle_error( connfd);
         }
         // Validate key length
-        if (strlen(request_arr[1]) > MAXLINE) {
-            handle_error("ERROR: Uri exceeds the max buffer");
+        if (strlen(file_name) > MAXLINE) {
+            handle_error( connfd);
         }
-        /* create file path, allocate the buf */
-        char* full_path;
-        int length_combined = strlen(request_arr[1]) + 2;
-        full_path = malloc((length_combined) * sizeof(char));
-
-        /* strcat the full path */
-        bzero(full_path, sizeof (full_path));
-        char* file_root_path = "..";
-        strcat(full_path, file_root_path);
+//        /* create file path, allocate the buf */
+        char full_path[MAXLINE];
+        char file_root_path[MAXLINE];
+        char* root_one = "../www";
+        char* root_two = "..";
+        if(check_path(file_name) < 0){
+            /* needs mod */;
+            strcpy(file_root_path, root_one);
+        } else {
+            strcpy(file_root_path, root_two);
+        }
+        strcpy((char *) full_path, file_root_path);
+        strcat((char *) full_path, file_name);
 
         /*construct the request */
-        strcpy(req->r_method, request_arr[0]);
-        strcpy(req->r_uri, strcat(full_path, request_arr[1]));
-        strcpy(req->r_version, request_arr[2]);
-
-        free(full_path);
+        strcpy(req->r_method, request_type);
+        strcpy(req->r_uri, full_path);
+        strcpy(req->r_version, http_version);
     }
     return req;
 }

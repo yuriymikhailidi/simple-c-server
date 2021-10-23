@@ -64,8 +64,9 @@ int echo(int connfd)
     char buf[MAXLINE];
     n = read(connfd, buf, MAXLINE);
     printf("server received the following request:\n%s\n",buf);
-    Request* req = parse_request(buf);
+    Request* req = parse_request(buf, connfd);
     handle_request(req, connfd);
+    free(req);
 }
 
 /* 

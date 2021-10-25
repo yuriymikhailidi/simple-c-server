@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <strings.h>
 
 #define MAXLINE  8192  /* m ax text line length */
 #define MAXBUF   8192  /* max I/O buffer size */
@@ -48,14 +49,10 @@ void handle_request(Request *, int);
 
 /* handle the response,
  * takes file buffer, handles response packet w/HTTP header */
-void handle_response(int, long, int, Request *);
+void handle_response(int, long, int, Request *, FILE*);
 
 /*error wrapper */
 void handle_error(int);
-
-/* parses input into array,
- * encapsulates the request info into struct */
-Request *parse_request(char *, int);
 
 /* header mapper, takes file type string, returns header */
 char* header_mime_type(char*, int);

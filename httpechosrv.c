@@ -21,7 +21,7 @@
 #define LISTENQ  1024  /* second argument to listen() */
 
 int open_listenfd(int port);
-int echo(int connfd);
+void echo(int connfd);
 void *thread(void *vargp);
 
 int main(int argc, char **argv) 
@@ -58,14 +58,65 @@ void * thread(void * vargp)
 /*
  * echo - read and echo text lines until client closes connection
  */
-int echo(int connfd)
+/*
+ * parser function, based of https://codereview.stackexchange.com/questions/245454/parse-string-into-a-struct,
+ *      parser function breaks the buffer to array of strings, the strings are put in the struct, the request info
+ *      command, url (root file path), http version.
+ */
+int check_path(char* file_path){
+    printf("server checking path: %s\n", file_path);
+    /* ../www/ */
+    char* www = "/www/";
+    char* ret = strstr(file_path, www);
+    if(ret){
+        return 1;
+    } else {
+        return -1;
+    }
+}
+void echo(int connfd)
 {
     size_t n;
-    char buf[MAXLINE];
-    n = read(connfd, buf, MAXLINE);
-    printf("server received the following request:\n%s\n",buf);
-    Request* req = parse_request(buf, connfd);
-    handle_request(req, connfd);
+    char buffer[MAXLINE];
+    n = read(connfd, buffer, MAXLINE);
+    printf("server received the following request:\n%s\n",buffer);
+    char* request_type = strtok(buffer," ");
+    char* file_name = strtok(NULL, " ");
+    char* http_version = strtok(NULL, "\r");
+    /* basic vars */
+    Request *req = malloc(sizeof (Request));
+    char* req_GET = "GET";
+    // Parse GET command
+    // Validate key length
+    if (strlen(file_name) == 0) {
+        handle_error( connfd);
+        return;
+    }
+    if (!strcmp(request_type, req_GET)) {
+//        /* create file path, allocate the buf */
+        char full_path[MAXLINE];
+        char file_root_path[MAXLINE];
+        char* root_one = "../www";
+        char* root_two = "..";
+        if(check_path(file_name) < 0){
+            /* needs mod */;
+            strcpy(file_root_path, root_one);
+        } else {
+            strcpy(file_root_path, root_two);
+        }
+        strcpy((char *) full_path, file_root_path);
+        strcat((char *) full_path, file_name);
+
+        /*construct the request */
+        strcpy(req->r_method, request_type);
+        strcpy(req->r_uri, full_path);
+        strcpy(req->r_version, http_version);
+        handle_request(req, connfd);
+
+    } else {
+        handle_error( connfd);
+        return;
+    }
     free(req);
 }
 

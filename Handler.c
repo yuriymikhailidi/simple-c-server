@@ -77,97 +77,54 @@ void handle_request(Request* req, int connfd){
     /*record file size */
     file_size = file_stats.st_size;
 
-    /* open file */
-    if((r_file_descriptor = open(file_path, O_RDONLY)) < 0)
-        handle_error( connfd);
 
-    handle_response(r_file_descriptor, file_size, connfd, req);
+    FILE* file = fopen(file_path, "rb");
+
+    if(file == NULL) {
+        handle_error(connfd);
+        return;
+    }
+    r_file_descriptor = open(file_path, O_RDONLY);
+    /* open file */
+    if(r_file_descriptor < 0) {
+        handle_error(connfd);
+        return;
+    }
+
+    handle_response(r_file_descriptor, file_size, connfd, req, file);
 }
 
-void handle_response(int req_file_descriptor, long file_size, int connfd, Request* request){
+void handle_response(int req_file_descriptor, long file_size, int connfd, Request* request, FILE* file){
         /* allocate packet memory */
-        int max_packet = MAXLINE + file_size;
-        unsigned char packet [max_packet];
-        unsigned char* header = malloc(MAXLINE * sizeof (char ));
-        unsigned char payload [file_size];
-        char* header_str = malloc((MAXLINE) * sizeof (char ));
+        char header[MAXLINE];
+        char payload[file_size];
+        char header_str[MAXLINE];
         /*get file payload */
-        long read_bytes = read(req_file_descriptor, payload, file_size);
-        printf(" read %ld\n", read_bytes);
+        //long read_bytes = read(req_file_descriptor, payload, file_size);
+        fread(payload, 1, file_size, file);
+
         printf("server is handeling response\n");
     /* get header string */
         strcpy(header_str, header_mime_type(request->r_uri, connfd));
         sprintf(header, header_str, file_size);
         /* copy header in */
+        long max_packet = strlen(header) + file_size;
+        char packet [max_packet];
         strcpy(packet, header);
 
         /*copy payload */
-        memcpy(packet + strlen((char*)header), payload, sizeof (payload));
+        memcpy(packet + strlen(header), payload, file_size);
         /*print ACK */
         printf("server returning a http message with the following content.\n%s\n", packet);
 
         /* send response */
-        long write_bytes = write(connfd, packet, sizeof (packet) );
+        long write_bytes = write(connfd, packet, max_packet );
 
 
-        free(header_str);free(header);
-        bzero(packet, MAXLINE + file_size);
-        bzero(header, MAXLINE); bzero(payload, file_size);
-        bzero(request, sizeof (Request));
+        //free(header_str);free(header);
+//        bzero(packet, MAXLINE + file_size);
+//        bzero(header, MAXLINE); bzero(payload, file_size);
+//        bzero(request, sizeof (Request));
         close(req_file_descriptor);
-}
-/*
- * parser function, based of https://codereview.stackexchange.com/questions/245454/parse-string-into-a-struct,
- *      parser function breaks the buffer to array of strings, the strings are put in the struct, the request info
- *      command, url (root file path), http version.
- */
-int check_path(char* file_path){
-    printf("server checking path: %s\n", file_path);
-    /* ../www/ */
-    char* www = "/www/";
-    char* ret = strstr(file_path, www);
-    if(ret){
-        return 1;
-    } else {
-        return -1;
-    }
-}
-Request* parse_request(char* request_buffer, int connfd){
-
-    char* request_type = strtok(request_buffer," ");
-    char* file_name = strtok(NULL, " ");
-    char* http_version = strtok(NULL, "\r");
-    /* basic vars */
-    Request *req = malloc(sizeof (Request));
-    char* req_GET = "GET";
-
-    // Parse GET command
-    if (strcmp(request_type, req_GET) == 0) {
-        if (request_type == NULL) {
-            handle_error( connfd);
-        }
-        // Validate key length
-        if (strlen(file_name) > MAXLINE) {
-            handle_error( connfd);
-        }
-//        /* create file path, allocate the buf */
-        char full_path[MAXLINE];
-        char file_root_path[MAXLINE];
-        char* root_one = "../www";
-        char* root_two = "..";
-        if(check_path(file_name) < 0){
-            /* needs mod */;
-            strcpy(file_root_path, root_one);
-        } else {
-            strcpy(file_root_path, root_two);
-        }
-        strcpy((char *) full_path, file_root_path);
-        strcat((char *) full_path, file_name);
-
-        /*construct the request */
-        strcpy(req->r_method, request_type);
-        strcpy(req->r_uri, full_path);
-        strcpy(req->r_version, http_version);
-    }
-    return req;
+        fclose(file);
 }
